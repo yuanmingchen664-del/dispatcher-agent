@@ -47,11 +47,58 @@ python -m compileall backend tests
 pytest
 ```
 
+## 测试资料
+
+仓库内提供了一份不含真实运行资料的测试文档：
+
+```text
+test_assets/签派助手测试手册.txt
+```
+
+它用于验证：
+
+- 文档上传
+- 文本解析
+- 知识片段切分
+- embedding 入库
+- 检索和问答接口
+
+当前第一轮建议优先使用 TXT 测试完整闭环。中文 PDF 需要进一步处理字体嵌入、扫描件 OCR、表格解析等问题，后续会单独增强。
+
+## 知识片段切分
+
+当前切分策略优先识别：
+
+- 中文章节标题，例如 `第一章 目的地天气放行标准`
+- 英文章节标题，例如 `Chapter 1 ...`
+- 条款编号，例如 `1.1`、`2.3`
+
+系统会尽量按章节组织 chunk，并在元数据中记录：
+
+- `chapter`：章节标题
+- `articles`：chunk 内包含的条款编号
+- `char_count`：字符数
+
+修改切分策略后，需要重新处理文档，旧 chunk 才会被替换：
+
+```text
+POST /documents/{document_id}/process
+```
+
+查看某份文档已经生成的 chunk：
+
+```text
+GET /documents/{document_id}/chunks
+```
+
+这个接口用于检查 PDF 或 TXT 被系统解析后的真实效果，不会调用模型，也不会消耗模型 API 额度。
+
 ## MVP 接口
 
 - `POST /documents/upload`
 - `GET /documents`
 - `GET /documents/{document_id}`
+- `GET /documents/{document_id}/chunks`
 - `POST /documents/{document_id}/process`
 - `POST /search`
 - `POST /ask`
@@ -81,4 +128,10 @@ LLM_MODEL=...
 ```
 
 后续可以接入 DeepSeek、通义千问、智谱、火山方舟等兼容接口，也可以替换为内网部署的模型服务。
+
+硅基流动接入说明见：
+
+```text
+docs/siliconflow.md
+```
 # dispatcher-agent
