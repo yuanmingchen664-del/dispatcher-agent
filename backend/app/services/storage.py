@@ -27,6 +27,9 @@ class Storage(Protocol):
     def download_to_temp(self, object_key: str) -> str:
         ...
 
+    def delete(self, object_key: str) -> None:
+        ...
+
 
 class LocalStorage:
     def __init__(self, root_dir: str):
@@ -51,6 +54,9 @@ class LocalStorage:
         temp.close()
         shutil.copyfile(source, temp.name)
         return temp.name
+
+    def delete(self, object_key: str) -> None:
+        (self.root / object_key).unlink(missing_ok=True)
 
 
 class S3Storage:
@@ -87,6 +93,9 @@ class S3Storage:
         temp.close()
         self.client.download_file(self.bucket, object_key, temp.name)
         return temp.name
+
+    def delete(self, object_key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=object_key)
 
 
 def get_storage(settings: Settings) -> Storage:

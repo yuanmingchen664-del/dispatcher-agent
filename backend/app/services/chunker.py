@@ -18,11 +18,25 @@ class TextChunk:
     metadata: dict
 
 
+@dataclass
+class TextBlock:
+    text: str
+    page_number: int
+
+
 CHAPTER_PATTERN = re.compile(
-    r"^(第[一二三四五六七八九十百零〇0-9]+[章节篇部].+|Chapter\s+\d+.+|Section\s+\d+.+)$",
+    r"^("
+    r"第[一二三四五六七八九十百零〇0-9]+[章节篇部]\s*.+"
+    r"|[A-Z]\s*章\s*[\u4e00-\u9fffA-Za-z0-9（(].+"
+    r"|Chapter\s+\d+.+"
+    r"|Section\s+\d+.+"
+    r")$",
     re.IGNORECASE,
 )
-ARTICLE_PATTERN = re.compile(r"^(\d+(?:\.\d+)+|[A-Z]\.|[a-z]\)|\([一二三四五六七八九十0-9]+\))\s+")
+APPENDIX_PATTERN = re.compile(r"^(附件\s*[A-Z一二三四五六七八九十0-9]+|附录\s*[A-Z一二三四五六七八九十0-9]+)\s*.+")
+ARTICLE_PATTERN = re.compile(
+    r"^(第\s*\d+(?:\.\d+)*\s*条|\d+(?:\.\d+)+|[A-Z]\.|[a-z]\)|\([一二三四五六七八九十0-9]+\))\s*"
+)
 
 
 def split_pages_into_chunks(
@@ -32,9 +46,7 @@ def split_pages_into_chunks(
 ) -> list[TextChunk]:
     chunks: list[TextChunk] = []
     current_chapter: Optional[str] = None
-    current_blocks: list[str] = []
-    current_page_start: Optional[int] = None
-    current_page_end: Optional[int] = None
+    current_blocks: list[TextBlock] = []
 
     for page in pages:
         blocks = split_text_blocks(page.text)
@@ -46,29 +58,20 @@ def split_pages_into_chunks(
                 chunks.extend(
                     _flush_blocks(
                         current_blocks,
-                        current_page_start,
-                        current_page_end,
                         current_chapter,
                         max_chars,
                         overlap_chars,
                     )
                 )
                 current_chapter = block
-                current_blocks = [block]
-                current_page_start = page.page_number
-                current_page_end = page.page_number
+                current_blocks = [TextBlock(text=block, page_number=page.page_number)]
                 continue
 
-            if current_page_start is None:
-                current_page_start = page.page_number
-            current_page_end = page.page_number
-            current_blocks.append(block)
+            current_blocks.append(TextBlock(text=block, page_number=page.page_number))
 
     chunks.extend(
         _flush_blocks(
             current_blocks,
-            current_page_start,
-            current_page_end,
             current_chapter,
             max_chars,
             overlap_chars,
@@ -117,6 +120,18 @@ def is_chapter_heading(text: str) -> bool:
     return len(line) <= 80 and bool(CHAPTER_PATTERN.match(line))
 
 
+def is_appendix_heading(text: str) -> bool:
+    line = text.strip()
+    return len(line) <= 100 and bool(APPENDIX_PATTERN.match(line))
+
+
+def normalize_heading(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", text.strip())
+    normalized = re.sub(r"^([A-Z])\s*章\s*", r"\1 章 ", normalized)
+    normalized = re.sub(r"^(附件|附录)\s*([A-Z一二三四五六七八九十0-9]+)\s*", r"\1\2 ", normalized)
+    return normalized.strip()
+
+
 def is_article_line(text: str) -> bool:
     return bool(ARTICLE_PATTERN.match(text.strip()))
 
@@ -126,9 +141,7 @@ def _looks_like_continuation(line: str) -> bool:
 
 
 def _flush_blocks(
-    blocks: list[str],
-    page_start: Optional[int],
-    page_end: Optional[int],
+    blocks: list[TextBlock],
     chapter: Optional[str],
     max_chars: int,
     overlap_chars: int,
@@ -137,80 +150,89 @@ def _flush_blocks(
         return []
 
     chunks: list[TextChunk] = []
-    buffer: list[str] = []
+    buffer: list[TextBlock] = []
 
     for block in blocks:
-        proposed = "\n".join([*buffer, block]).strip()
+        proposed = "\n".join([item.text for item in [*buffer, block]]).strip()
         if len(proposed) <= max_chars:
             buffer.append(block)
             continue
 
         if buffer:
-            chunks.append(_build_chunk("\n".join(buffer), page_start, page_end, chapter))
+            chunks.append(_build_chunk(buffer, chapter))
             buffer = _overlap_blocks(buffer, overlap_chars, chapter)
 
-        if len(block) > max_chars:
-            chunks.extend(_split_long_block(block, page_start, page_end, chapter, max_chars, overlap_chars))
+        if len(block.text) > max_chars:
+            chunks.extend(_split_long_block(block, chapter, max_chars, overlap_chars))
             buffer = []
         else:
             buffer.append(block)
 
     if buffer:
-        chunks.append(_build_chunk("\n".join(buffer), page_start, page_end, chapter))
+        chunks.append(_build_chunk(buffer, chapter))
 
     return chunks
 
 
 def _split_long_block(
-    block: str,
-    page_start: Optional[int],
-    page_end: Optional[int],
+    block: TextBlock,
     chapter: Optional[str],
     max_chars: int,
     overlap_chars: int,
 ) -> list[TextChunk]:
     chunks: list[TextChunk] = []
     start = 0
-    while start < len(block):
-        end = min(start + max_chars, len(block))
-        chunks.append(_build_chunk(block[start:end], page_start, page_end, chapter))
-        if end == len(block):
+    while start < len(block.text):
+        end = min(start + max_chars, len(block.text))
+        chunks.append(
+            _build_chunk(
+                [TextBlock(text=block.text[start:end], page_number=block.page_number)],
+                chapter,
+            )
+        )
+        if end == len(block.text):
             break
         start = max(end - overlap_chars, start + 1)
     return chunks
 
 
-def _overlap_blocks(blocks: list[str], overlap_chars: int, chapter: Optional[str]) -> list[str]:
+def _overlap_blocks(
+    blocks: list[TextBlock],
+    overlap_chars: int,
+    chapter: Optional[str],
+) -> list[TextBlock]:
     if overlap_chars <= 0:
-        return [chapter] if chapter else []
+        chapter_block = next((block for block in blocks if block.text == chapter), None)
+        return [chapter_block] if chapter_block else []
 
-    selected: list[str] = []
+    selected: list[TextBlock] = []
     char_count = 0
     for block in reversed(blocks):
-        if block == chapter:
+        if block.text == chapter:
             continue
         selected.insert(0, block)
-        char_count += len(block)
+        char_count += len(block.text)
         if char_count >= overlap_chars:
             break
 
-    if chapter and (not selected or selected[0] != chapter):
-        selected.insert(0, chapter)
+    chapter_block = next((block for block in blocks if block.text == chapter), None)
+    if chapter_block and (not selected or selected[0].text != chapter):
+        selected.insert(0, chapter_block)
     return selected
 
 
 def _build_chunk(
-    content: str,
-    page_start: Optional[int],
-    page_end: Optional[int],
+    blocks: list[TextBlock],
     chapter: Optional[str],
 ) -> TextChunk:
+    content = "\n".join(block.text for block in blocks)
+    pages = [block.page_number for block in blocks]
     resolved_chapter = chapter or _guess_chapter(content)
-    articles = [line.split(maxsplit=1)[0] for line in content.splitlines() if is_article_line(line)]
+    articles = extract_article_numbers_from_content(content)
     return TextChunk(
         content=content.strip(),
-        page_start=page_start,
-        page_end=page_end,
+        page_start=min(pages) if pages else None,
+        page_end=max(pages) if pages else None,
         chapter=resolved_chapter,
         metadata={
             "char_count": len(content),
@@ -225,3 +247,17 @@ def _guess_chapter(content: str) -> Optional[str]:
     if is_chapter_heading(first_line):
         return first_line
     return None
+
+
+def extract_article_numbers_from_content(content: str) -> list[str]:
+    articles: list[str] = []
+    patterns = [
+        re.compile(r"第\s*(\d+(?:\.\d+)*)\s*条"),
+        re.compile(r"^(\d+(?:\.\d+)+)\s*条?", re.MULTILINE),
+    ]
+    for pattern in patterns:
+        for match in pattern.finditer(content):
+            article = match.group(1)
+            if article not in articles:
+                articles.append(article)
+    return articles

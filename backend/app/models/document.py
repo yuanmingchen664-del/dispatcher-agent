@@ -38,6 +38,7 @@ class Document(Base):
     file_hash: Mapped[str] = mapped_column(String(64), index=True)
     file_size: Mapped[int] = mapped_column(Integer)
     mime_type: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    document_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -65,4 +66,3 @@ class DocumentChunk(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped[Document] = relationship(back_populates="chunks")
-

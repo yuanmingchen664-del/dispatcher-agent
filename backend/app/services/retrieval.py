@@ -4,6 +4,7 @@ from typing import Optional
 
 from backend.app.models.document import Document, DocumentChunk, DocumentStatus
 from backend.app.schemas import SourceOut
+from backend.app.services.evidence import build_evidence_card, document_source_metadata
 
 
 def search_chunks(
@@ -58,8 +59,10 @@ def _to_source(
         page_start=chunk.page_start,
         page_end=chunk.page_end,
         score=score,
+        evidence=build_evidence_card(document, chunk),
         metadata={
             **(chunk.chunk_metadata or {}),
+            **document_source_metadata(document),
             "doc_type": document.doc_type,
             "version": document.version,
             "effective_date": (

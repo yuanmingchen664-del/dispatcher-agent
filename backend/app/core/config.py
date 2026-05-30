@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     embedding_api_key: Optional[str] = None
     embedding_model: str = "mock-embedding"
     embedding_dimensions: int = Field(default=384, ge=1)
+    embedding_batch_size: int = Field(default=64, ge=1, le=256)
 
     llm_provider: Literal["mock", "openai_compatible"] = "mock"
     llm_base_url: Optional[str] = None
@@ -36,8 +37,18 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = Field(default=160, ge=0)
     top_k: int = Field(default=6, ge=1, le=20)
 
+    ocr_provider: Literal["none", "openai_compatible_vision"] = "none"
+    ocr_min_text_chars: int = Field(default=30, ge=0)
+    ocr_dpi: int = Field(default=200, ge=72, le=400)
+    ocr_base_url: Optional[str] = None
+    ocr_api_key: Optional[str] = None
+    ocr_model: str = "PaddlePaddle/PaddleOCR-VL-1.5"
+    ocr_prompt: str = (
+        "请对图片进行 OCR，只输出识别出的原始文字。"
+        "尽量保持阅读顺序、章节标题、条款编号和换行。不要总结，不要解释。"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

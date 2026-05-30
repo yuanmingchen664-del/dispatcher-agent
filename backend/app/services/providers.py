@@ -37,10 +37,15 @@ class OpenAICompatibleEmbeddingProvider:
     def __init__(self, settings: Settings):
         self.client = OpenAI(api_key=settings.embedding_api_key, base_url=settings.embedding_base_url)
         self.model = settings.embedding_model
+        self.batch_size = settings.embedding_batch_size
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        response = self.client.embeddings.create(model=self.model, input=texts)
-        return [item.embedding for item in response.data]
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self.batch_size):
+            batch = texts[start : start + self.batch_size]
+            response = self.client.embeddings.create(model=self.model, input=batch)
+            embeddings.extend(item.embedding for item in response.data)
+        return embeddings
 
 
 class MockLLMProvider:
@@ -99,4 +104,3 @@ def get_llm_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "openai_compatible":
         return OpenAICompatibleLLMProvider(settings)
     return MockLLMProvider()
-
